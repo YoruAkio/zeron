@@ -104,7 +104,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: onnxruntime/build
-          key: onnxruntime-v1.28.0-macos-x86_64
+          key: onnxruntime-v1.28.0-macos-x86_64-v1
       - name: build Intel ONNX Runtime
         if: matrix.arch == 'x86_64'
         run: |
@@ -112,6 +112,18 @@ jobs:
           ./build.sh --config Release --update --build --parallel \
             --skip_submodule_sync \
             --cmake_extra_defines CMAKE_OSX_ARCHITECTURES=x86_64
+          # ort-sys links libonnxruntime_session.a statically, but in ORT 1.28.0
+          # session objects depend on model_package, which ort-sys does not link.
+          # Merge libmodel_package.a into libonnxruntime_session.a using libtool.
+          SESSION_LIB="$GITHUB_WORKSPACE/onnxruntime/build/MacOS/Release/libonnxruntime_session.a"
+          MODEL_PKG_LIB="$(find "$GITHUB_WORKSPACE/onnxruntime/build/MacOS/Release" -name "libmodel_package.a" | head -n 1)"
+          if [ -n "$MODEL_PKG_LIB" ] && [ -f "$MODEL_PKG_LIB" ]; then
+            /usr/bin/libtool -static -o "$SESSION_LIB.merged" "$SESSION_LIB" "$MODEL_PKG_LIB"
+            mv "$SESSION_LIB.merged" "$SESSION_LIB"
+          else
+            echo "Error: libmodel_package.a not found" >&2
+            exit 1
+          fi
           echo "ORT_LIB_PATH=$GITHUB_WORKSPACE/onnxruntime/build/MacOS/Release" >> "$GITHUB_ENV"
       - name: import Developer ID certificate
         if: env.MACOS_CERT_P12 != ''
